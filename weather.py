@@ -18,11 +18,11 @@ locale.setlocale(locale.LC_TIME,'')
 
 darksky_api_key = "0c364b329eaaaf21879e82272fbb2cba"
 darksky_forecast_url = "https://api.darksky.net/forecast/"
-ip_jeedom = 'xxxx.xxx.xxx.xxx'                                                                                                         
-Api_key = 'XXXX_JEEDOM_API_KEY_XXXX'   
-url = "http://%s/core/api/jeeApi.php"% ( ip_jeedom)
-headers = {'content-type': 'application/json'}
-folder_img = 'images/'
+latLon = "/35.970,-78.893"
+url = darksky_forecast_url + darksky_api_key + latLon
+
+imageFolder = "/img"
+
 H_condition = 100
 W_condition = 100
 H_Big = 15
@@ -92,13 +92,6 @@ def updateParameter(id, method):
   }  
   return parameters
 
-def getSunTime(timestring):
-  if len(timestring) == 3:
-   #timestring[1:] +  
-   return  timestring[0:1] + 'h' + timestring[-2:]
-  else:
-    return timestring[0:2] + 'h' + timestring[-2:]  
-
 def getDirWind(WindDir):
   #https://www.campbellsci.com/blog/convert-wind-directions
   Direction = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW","N"]
@@ -128,113 +121,112 @@ def findIcone(condition_id):
   if condition_id == 800:
     return 'Sun'  
 
-def getDataFromJeedom():
-    #Modifiy with your Weather equipment
-    idCmd = {
-      "conditiontxt": "17",
-      "condition"   : "18",
-      "leverSoleil" : "14",
-      "coucherSoleil" : "13",
-      "pa"          : "10",
-      "humidite"    : "9",
-      "tempMin"     : "15",
-      "tempMax"     : "16",
-      "vitVent"     : "11",
-      "dirVent"     : "12",
-      "conditionJ1" : "28",
-      "conditionJ2" : "30",
-      "conditionJ3" : "32",
-      "conditionJ4" : "34",
-      "condJ1Txt"   : "27",
-      "condJ2Txt"   : "29",
-      "condJ3Txt"   : "31",
-      "condJ4Txt"   : "33",
-      "tempMinJ1"   : "19",
-      "tempMinJ2"   : "21",
-      "tempMinJ3"   : "23",
-      "tempMinJ4"   : "25",
-      "tempMaxJ1"   : "20",
-      "tempMaxJ2"   : "22",
-      "tempMaxJ3"   : "24",
-      "tempMaxJ4"   : "26"
-    }
+conditions = {
+  "clear-day": "Clear",
+  "clear-night": "Clear",
+  "rain": "Rainy",
+  "snow": "Snowy",
+  "sleet": "Sleet",
+  "wind": "Windy",
+  "fog": "Foggy",
+  "cloudy": "Cloudy",
+  "partly-cloudy-day": "Partly cloudy",
+  "partly-cloudy-night": "Partly cloudy"
+}
 
-    #Get city name
-    #Change 3 by your Weather equipment
-    _parameters = updateParameter(3, "eqLogic::byId")
-    response = requests.post(url, data=json.dumps(_parameters), headers=headers)
-    response = requests.get(url).json()
-    jsonResponse = json.loads(response)
-    prevision['city'] = response['result']['name']
+def parseDaily(daily):
+  dailyIcon = daily["icon"]
+  dailySummary = daily["summary"]
+  dailyData = daily["data"]
 
-    #Get weather conditions
-    for key, value in idCmd.iteritems(): 
-      _parameters = updateParameter(value, "cmd::byId")
-      response = requests.post(url, data=json.dumps(_parameters), headers=headers).json()
-      #print response
-      if ( key == 'condition' or key == 'conditionJ1' or key == 'conditionJ2' or key == 'conditionJ3' or key == 'conditionJ4'):
-        prevision[key] = findIcone(response['result']['currentValue'])
-        print 'condition_id '+ str(response['result']['currentValue']) + " => " + str(prevision[key])
-      else:
-        prevision[key] = {
-          'value' : response['result']['currentValue'],
-          'unit' : response['result']['unite'],
-        }
-    print prevision
+def parseHourly(hourly):  
+  hourlyIcon = hourly["icon"]
+  hourlySummary = hourly["summary"]
+  hourlyData = hourly["data"]
 
-# Dessine l'écran du jour - Draw frame1, today weather condition
+def parseMinutely(minutely):      
+  minutelySummary = minutely["summary"]
+  minutelyIcon = minutely["icon"]
+  minutelyData = minutely["data"]
+
+def getDataFromDarkySky():
+  response = requests.get(url)
+  jsonResponse = json.loads(response.text)
+  currently = jsonResponse["currently"]
+  currentSummary = currentSummary["summary"]
+  minutely = jsonResponse["minutely"]
+  hourly = jsonResponse["hourly"]
+  daily = jsonResponse["daily"]
+
+  flags = jsonResponse["flags"]
+  windDir = getDirWind(currently["windBearing"])
+  windSpeed = currently["windSpeed"]
+
+  data = {}
+  data["currently"] = currently
+  data["minutely"] = minutely
+  data["hourly"] = hourly
+  data["daily"] = daily
+
+
 def updateFrame1():
-    mask = Image.new('1', (EPD_HEIGHT,EPD_WIDTH), 255)   
-    
-    draw = ImageDraw.Draw(mask)
+  mask = Image.new('1', (EPD_HEIGHT,EPD_WIDTH), 255)       
+  draw = ImageDraw.Draw(mask)
 
-    #Format date heure en Python - Date/time format in python : https://www.cyberciti.biz/faq/howto-get-current-date-time-in-python/
-    #Entete
-    condition = Image.open(folder_img + prevision['condition'] + '.png')
-    condition = condition.resize((H_condition,W_condition))
-    mask.paste(condition, (0,0), condition)
-    mask.paste(lever, (W_condition + Bord,70), lever)
-    mask.paste(coucher, (W_condition + 90,70), coucher)
-    date = unicode(time.strftime("%a %d %B") + "  " + time.strftime("%H:%M"),'UTF-8')
-    draw.text((W_condition + Bord,5), date, font = fontMedium, fill = 0)
-    condGauche = prevision['conditiontxt']['value'][0:16]
-    condDroite = prevision['conditiontxt']['value'][16:]
-    draw.text((W_condition + Bord,25), condGauche, font = fontBig, fill = 0)
-    draw.text((W_condition + Bord,45), condDroite, font = fontBig, fill = 0)
-    draw.text((W_condition + 45,75), getSunTime(str(prevision['leverSoleil']['value'])), font = fontSmall, fill = 0)
-    draw.text((W_condition + 125,75), getSunTime(str(prevision['coucherSoleil']['value'])), font = fontSmall, fill = 0)
+  morningCondition = "Morning condition"
+  eveningCondition = "Evening condition"
+  sunrise = "daily[0][sunriseTime]"
+  sunset = "daily[0][sunsetTime]"
 
-    #Prévision du jour en détail - Today weather forecast
-    #Tourne la bousole dans la direction du vent - Wind direction
-    direction.rotate(float(prevision['dirVent']['value']))
-    mask.paste(temperature, (Bord,110), temperature)
-    mask.paste(humidity, (Col1,110), humidity)
-    mask.paste(pressure, (Col2,110), pressure)
-    mask.paste(direction, (Col3,110), direction)
-    draw.text((Bord,LiBaCd), str(prevision['tempMax']['value']) + '%C', font = fontMedium, fill = 0)
-    draw.text((Col1,LiBaCd), str(prevision['humidite']['value'])+'%', font = fontMedium, fill = 0)
-    draw.text((Col2,LiBaCd), str(prevision['pa']['value'])+str(prevision['pa']['unit']), font = fontMedium, fill = 0)
-    draw.text((Col3 + 35,110), getDirWind(float(prevision['dirVent']['value'])), font = fontMedium, fill = 0)
-    draw.text((Col3,LiBaCd), str(prevision['vitVent']['value'])+str(prevision['vitVent']['unit']),font = fontMedium, fill = 0)
+  data = getDataFromDarkySky()
+  currentSummary = data["currently"]["summary"]
 
-    #Lignes - draw lines
-    draw.line((0,H_condition,EPD_HEIGHT,H_condition), fill=0)
-    draw.line((0,LiBaCd + 20,EPD_HEIGHT,LiBaCd + 20), fill=0)
-    draw.line((W_condition,0,W_condition,H_condition), fill=0)
-    
-    #Bas de page - draw bottom of the page
-    draw.text((Bord,EPD_WIDTH - 18), str(prevision['city']),font = fontMedium, fill = 0)
-    draw.text((180,EPD_WIDTH - 17), "projetsdiy.fr",font = fontSmall, fill = 0)
-    draw.ellipse((97,EPD_WIDTH - DiamPastille - 2,107,EPD_WIDTH - 2), fill=0, outline=0)
-    draw.ellipse((117,EPD_WIDTH - DiamPastille - 2,127,EPD_WIDTH - 2), fill=255, outline=0)
-    draw.ellipse((137,EPD_WIDTH - DiamPastille - 2,147,EPD_WIDTH - 2), fill=255, outline=0)
-    draw.ellipse((157,EPD_WIDTH - DiamPastille - 2,167,EPD_WIDTH - 2), fill=255, outline=0)  
-    
-    out = mask.rotate(90)
-    out.save('frame1.bmp',"bmp")
+  # condition = Image.open(folder_img + prevision['condition'] + '.png')
+  # condition = condition.resize((H_condition,W_condition))
+  mask.paste(condition, (0,0), condition)
+  mask.paste(lever, (W_condition + Bord,70), lever)
+  mask.paste(coucher, (W_condition + 90,70), coucher)
+  date = unicode(time.strftime("%a %d %B") + "  " + time.strftime("%H:%M"),'UTF-8')
+  draw.text((W_condition + Bord,5), date, font = fontMedium, fill = 0)
 
-    if modeTest == False:
-      epd.display_frame(epd.get_frame_buffer(out))
+  draw.text((W_condition + Bord,25), condGauche, font = fontBig, fill = 0)
+  draw.text((W_condition + Bord,45), condDroite, font = fontBig, fill = 0)
+  draw.text((W_condition + 45,75), getSunTime(str(prevision['leverSoleil']['value'])), font = fontSmall, fill = 0)
+  draw.text((W_condition + 125,75), getSunTime(str(prevision['coucherSoleil']['value'])), font = fontSmall, fill = 0)
+
+  #Prévision du jour en détail - Today weather forecast
+  #Tourne la bousole dans la direction du vent - Wind direction
+  direction.rotate(float(prevision['dirVent']['value']))
+  mask.paste(temperature, (Bord,110), temperature)
+  mask.paste(humidity, (Col1,110), humidity)
+  mask.paste(pressure, (Col2,110), pressure)
+  mask.paste(direction, (Col3,110), direction)
+  draw.text((Bord,LiBaCd), str(prevision['tempMax']['value']) + '%C', font = fontMedium, fill = 0)
+  draw.text((Col1,LiBaCd), str(prevision['humidite']['value'])+'%', font = fontMedium, fill = 0)
+  draw.text((Col2,LiBaCd), str(prevision['pa']['value'])+str(prevision['pa']['unit']), font = fontMedium, fill = 0)
+  draw.text((Col3 + 35,110), getDirWind(float(prevision['dirVent']['value'])), font = fontMedium, fill = 0)
+  draw.text((Col3,LiBaCd), str(prevision['vitVent']['value'])+str(prevision['vitVent']['unit']),font = fontMedium, fill = 0)
+
+  #Lignes - draw lines
+  draw.line((0,H_condition,EPD_HEIGHT,H_condition), fill=0)
+  draw.line((0,LiBaCd + 20,EPD_HEIGHT,LiBaCd + 20), fill=0)
+  draw.line((W_condition,0,W_condition,H_condition), fill=0)
+
+  #Bas de page - draw bottom of the page
+  draw.text((Bord,EPD_WIDTH - 18), str(prevision['city']),font = fontMedium, fill = 0)
+  draw.text((180,EPD_WIDTH - 17), "projetsdiy.fr",font = fontSmall, fill = 0)
+  draw.ellipse((97,EPD_WIDTH - DiamPastille - 2,107,EPD_WIDTH - 2), fill=0, outline=0)
+  draw.ellipse((117,EPD_WIDTH - DiamPastille - 2,127,EPD_WIDTH - 2), fill=255, outline=0)
+  draw.ellipse((137,EPD_WIDTH - DiamPastille - 2,147,EPD_WIDTH - 2), fill=255, outline=0)
+  draw.ellipse((157,EPD_WIDTH - DiamPastille - 2,167,EPD_WIDTH - 2), fill=255, outline=0)  
+
+
+
+  out = mask.rotate(90)
+  out.save('frame1.bmp',"bmp")
+
+  if modeTest == False:
+    epd.display_frame(epd.get_frame_buffer(out))
 
 #Prévisions des 4 prochains jours - 4-days forecast
 def updateFrame2():
